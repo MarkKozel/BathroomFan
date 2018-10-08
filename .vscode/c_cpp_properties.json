@@ -1,0 +1,19 @@
+{
+    "configurations": [
+        {
+            "name": "Win32",
+            "includePath": [
+                "C:\\Users\\mark\\Development\\Arduino\\tools\\**",
+                "C:\\Users\\mark\\Development\\Arduino\\hardware\\arduino\\avr\\**"
+            ],
+            "forcedInclude": [
+                "C:\\Users\\mark\\Development\\Arduino\\hardware\\arduino\\avr\\cores\\arduino\\Arduino.h"
+            ],
+            "intelliSenseMode": "msvc-x64",
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c11",
+            "cppStandard": "c++17"
+        }
+    ],
+    "version": 4
+}
