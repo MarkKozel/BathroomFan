@@ -1,34 +1,15 @@
-enum ControlType
-{
-  BUTTON_TYPE,
-  FAN_TYPE,
-};
 
-typedef struct
-{
-  int pin;
-  ControlType type; //const defs
-  boolean lastState;
-  boolean currentState;
-} control;
+const int BUTTON_Pin = 2;
+int buttonCurrentState = 0;
+int buttonLastState = 0;
 
-control upBtn = {2, BUTTON_TYPE, 0, 0};
-const int UP_BUTTON = 0; //Up Btn control index
-
-control fan = {3, FAN_TYPE, 0, 0};
-const int FAN = 1; //Fan control index
+const int FAN_Pin = 3; //Fan control index
+int fanCurrentState = 0;
 const int FAN_UP = 0;
 const int FAN_DOWN = 1;
 const int MAX_FAN_DC = 79;
 
-control Controls[] = {upBtn, fan};
-
-const int dp = 8;
-
-//volatile int upButtonState = 0;
-//const int debounceTime = 200; //ms
-
-const int led_pin = PB5; //Digital Pin 13 and on-board led
+// const int led_pin = PB5; //Digital Pin 13 and on-board led
 const uint16_t t1_load = 0;
 const uint16_t t1_comp = 26500; //Compare value 256 -  (0.5s * 16MHz)/256
 
@@ -38,16 +19,15 @@ const int MINUTE_COUNT_MAX = 9;
 
 //For 7-segment LED display
 int num_array[10][7] = {{1, 1, 1, 1, 1, 1, 0},  // 0
-  {0, 1, 1, 0, 0, 0, 0},  // 1
-  {1, 1, 0, 1, 1, 0, 1},  // 2
-  {1, 1, 1, 1, 0, 0, 1},  // 3
-  {0, 1, 1, 0, 0, 1, 1},  // 4
-  {1, 0, 1, 1, 0, 1, 1},  // 5
-  {1, 0, 1, 1, 1, 1, 1},  // 6
-  {1, 1, 1, 0, 0, 0, 0},  // 7
-  {1, 1, 1, 1, 1, 1, 1},  // 8
-  {1, 1, 1, 0, 0, 1, 1}
-}; // 9
+                        {0, 1, 1, 0, 0, 0, 0},  // 1
+                        {1, 1, 0, 1, 1, 0, 1},  // 2
+                        {1, 1, 1, 1, 0, 0, 1},  // 3
+                        {0, 1, 1, 0, 0, 1, 1},  // 4
+                        {1, 0, 1, 1, 0, 1, 1},  // 5
+                        {1, 0, 1, 1, 1, 1, 1},  // 6
+                        {1, 1, 1, 0, 0, 0, 0},  // 7
+                        {1, 1, 1, 1, 1, 1, 1},  // 8
+                        {1, 1, 1, 0, 0, 1, 1}}; // 9
 
 boolean buttonWasPressed;
 
@@ -56,15 +36,12 @@ void setup()
   Serial.begin(9600);
 
   //Setup fan and init PWM on
-  pinMode(Controls[FAN].pin, OUTPUT);
+  pinMode(FAN_Pin, OUTPUT);
   pwm25kHzBegin();
-  pwmDuty(Controls[UP_BUTTON].currentState);
+  pwmDuty(0);
 
-  pinMode(Controls[UP_BUTTON].pin, INPUT);
-  digitalWrite(Controls[UP_BUTTON].pin, HIGH);
-//  buttonWasPressed = false;
-
-  pinMode(dp, OUTPUT);
+  pinMode(BUTTON_Pin, INPUT);
+  digitalWrite(BUTTON_Pin, LOW);
 
   pinMode(7, OUTPUT);
   pinMode(8, OUTPUT);
@@ -74,53 +51,26 @@ void setup()
   pinMode(12, OUTPUT);
   pinMode(13, OUTPUT);
 
-  DDRB |= (1 << led_pin);
+  // DDRB |= (1 << led_pin);
 
   initTimer1();
 }
 
 void loop()
 {
-  Controls[UP_BUTTON].currentState = digitalRead(Controls[UP_BUTTON].pin);
-  boolean event = Controls[UP_BUTTON].currentState && !Controls[UP_BUTTON].lastState;
-  if (event)
+  buttonCurrentState = digitalRead(BUTTON_Pin);
+  if (buttonCurrentState != buttonLastState)
   {
-    Serial.print("button: ");
-    Serial.println(digitalRead(Controls[UP_BUTTON].pin));
-    addMinuteToTime();
+    if(buttonCurrentState = HIGH) {
+//      digitalWrite(BUTTON_Pin, LOW);
+      Serial.print("button: ");
+      Serial.println(digitalRead(BUTTON_Pin));
+      addMinuteToTime();
+    }
+    
   }
-  
-  Controls[UP_BUTTON].lastState = Controls[UP_BUTTON].currentState;
-
+  buttonLastState = buttonCurrentState;
   delay(100);
-}
-
-void initTimer1()
-{
-  //Reset Time1 Ctrl Reg A to default
-  TCCR1A = 0;
-
-  //Set prescalar to 256 for 1 second timer (b100)
-  TCCR1B |= (1 << CS12);
-  TCCR1B &= ~(1 << CS11);
-  TCCR1B &= ~(1 << CS10);
-
-  //ResetTimer1 and set compare value
-  TCNT1 = t1_load;
-  OCR1A = t1_comp;
-
-  //Set Timer1 compare interrupt enable
-  TIMSK1 = (1 << OCIE1A);
-
-  //Enable global inettupts
-  sei();
-}
-
-ISR(TIMER1_COMPA_vect)
-{
-  checkForTimesUp();
-  TCNT1 = t1_load;
-  //PORTB ^= (1 << led_pin);
 }
 
 int checkForTimesUp()
@@ -146,7 +96,7 @@ int checkForTimesUp()
     countdownSeconds = 0;
     minuteCount = 0;
 
-        Serial.print("   countdownSeconds: ");
+    Serial.print("   countdownSeconds: ");
     Serial.println(countdownSeconds);
 
     Serial.print("   minuteCount: ");
@@ -154,9 +104,10 @@ int checkForTimesUp()
 
     Num_Write(minuteCount);
 
-    if (Controls[FAN].currentState != 0) {
-      Controls[FAN].currentState = 0;
-      pwmDuty(Controls[FAN].currentState); //Turn off fan
+    if (fanCurrentState != 0)
+    {
+      fanCurrentState = 0;
+      pwmDuty(fanCurrentState); //Turn off fan
     }
   }
 }
@@ -175,12 +126,8 @@ void addMinuteToTime()
     Serial.print("minuteCount is now ");
     Serial.println(minuteCount);
 
-
-    //    if (minuteCount == 1)
-    //    {
-    Controls[FAN].currentState = MAX_FAN_DC;
-    pwmDuty(Controls[FAN].currentState); //Turn on fan
-    //    }
+    fanCurrentState = MAX_FAN_DC;
+    pwmDuty(fanCurrentState); //Turn on fan
   }
   else
   {
@@ -218,4 +165,31 @@ void Num_Write(int number)
     digitalWrite(pin, num_array[number][j]);
     pin++;
   }
+}
+
+void initTimer1()
+{
+  //Reset Time1 Ctrl Reg A to default
+  TCCR1A = 0;
+
+  //Set prescalar to 256 for 1 second timer (b100)
+  TCCR1B |= (1 << CS12);
+  TCCR1B &= ~(1 << CS11);
+  TCCR1B &= ~(1 << CS10);
+
+  //ResetTimer1 and set compare value
+  TCNT1 = t1_load;
+  OCR1A = t1_comp;
+
+  //Set Timer1 compare interrupt enable
+  TIMSK1 = (1 << OCIE1A);
+
+  //Enable global inettupts
+  sei();
+}
+
+ISR(TIMER1_COMPA_vect)
+{
+  checkForTimesUp();
+  TCNT1 = t1_load;
 }
