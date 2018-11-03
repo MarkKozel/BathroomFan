@@ -1,127 +1,109 @@
-enum ControlType
-{
-  BUTTON_TYPE,
-  FAN_TYPE,
-};
 
-typedef struct
-{
-  int pin;
-  ControlType type; //const defs
-  boolean lastState;
-  boolean currentState;
-} control;
+const int BUTTON_Pin = 2;
+volatile boolean keyPressed = false;
 
-control upBtn = {2, BUTTON_TYPE, 0, 0};
-const int UP_BUTTON = 0; //Up Btn control index
+// variable used for the debounce
+unsigned long timeNewKeyPress = 0;
+unsigned long timeLastKeyPress = 0;
+unsigned int timeDebounce = 100;
 
-control fan = {3, FAN_TYPE, 0, 0};
-const int FAN = 1; //Fan control index
+const int LED_Pin = 7;
+// variable used to control the LED
+boolean LEDstatus = LOW;
+
+//int buttonCurrentState = 0;
+//int buttonLastState = 0;
+
+const int FAN_Pin = 3; //Fan control index
+int fanCurrentState = 0;
 const int FAN_UP = 0;
 const int FAN_DOWN = 1;
 const int MAX_FAN_DC = 79;
 
-control Controls[] = {upBtn, fan};
-
-const int dp = 8;
-
-//volatile int upButtonState = 0;
-//const int debounceTime = 200; //ms
-
-const int led_pin = PB5; //Digital Pin 13 and on-board led
+// const int led_pin = PB5; //Digital Pin 13 and on-board led
 const uint16_t t1_load = 0;
 const uint16_t t1_comp = 26500; //Compare value 256 -  (0.5s * 16MHz)/256
 
 int minuteCount = 0;
 int countdownSeconds = 0;
-const int MINUTE_COUNT_MAX = 9;
+const int MINUTE_COUNT_MAX = 15;
+
 
 //For 7-segment LED display
-int num_array[10][7] = {{1, 1, 1, 1, 1, 1, 0},  // 0
-  {0, 1, 1, 0, 0, 0, 0},  // 1
-  {1, 1, 0, 1, 1, 0, 1},  // 2
-  {1, 1, 1, 1, 0, 0, 1},  // 3
-  {0, 1, 1, 0, 0, 1, 1},  // 4
-  {1, 0, 1, 1, 0, 1, 1},  // 5
-  {1, 0, 1, 1, 1, 1, 1},  // 6
-  {1, 1, 1, 0, 0, 0, 0},  // 7
-  {1, 1, 1, 1, 1, 1, 1},  // 8
-  {1, 1, 1, 0, 0, 1, 1}
-}; // 9
+#include <ShiftRegister74HC595.h>
+int dataPin = 4;
+int latchPin = 5;
+int clockPin = 6;
+// create shift register object (number of shift registers, data pin, clock pin, latch pin)
+ShiftRegister74HC595 sr (1, dataPin, clockPin, latchPin);
 
 boolean buttonWasPressed;
 
 void setup()
 {
-  Serial.begin(9600);
+  Serial.begin(115200);
+
+  myfnUpdateDisplay(myfnNumToBits(-1));
 
   //Setup fan and init PWM on
-  pinMode(Controls[FAN].pin, OUTPUT);
+  pinMode(FAN_Pin, OUTPUT);
   pwm25kHzBegin();
-  pwmDuty(Controls[UP_BUTTON].currentState);
+  pwmDuty(0);
 
-  pinMode(Controls[UP_BUTTON].pin, INPUT);
-  digitalWrite(Controls[UP_BUTTON].pin, HIGH);
-//  buttonWasPressed = false;
+  pinMode(BUTTON_Pin, INPUT);
+  //digitalWrite(BUTTON_Pin, LOW);
+  attachInterrupt( digitalPinToInterrupt(BUTTON_Pin), keyIsPressed, RISING );
 
-  pinMode(dp, OUTPUT);
-
-  pinMode(7, OUTPUT);
-  pinMode(8, OUTPUT);
-  pinMode(9, OUTPUT);
-  pinMode(10, OUTPUT);
-  pinMode(11, OUTPUT);
-  pinMode(12, OUTPUT);
-  pinMode(13, OUTPUT);
-
-  DDRB |= (1 << led_pin);
-
+  pinMode(LED_Pin, OUTPUT);  
+   digitalWrite(LED_Pin,LOW); 
+   
   initTimer1();
 }
 
 void loop()
 {
-  Controls[UP_BUTTON].currentState = digitalRead(Controls[UP_BUTTON].pin);
-  boolean event = Controls[UP_BUTTON].currentState && !Controls[UP_BUTTON].lastState;
-  if (event)
+//  buttonCurrentState = digitalRead(BUTTON_Pin);
+//  if (buttonCurrentState != buttonLastState)
+//  {
+//    if(buttonCurrentState = HIGH) {
+////      digitalWrite(BUTTON_Pin, LOW);
+//      Serial.print("button: ");
+//      Serial.println(digitalRead(BUTTON_Pin));
+//      addMinuteToTime();
+//    }
+//    
+//  }
+//  buttonLastState = buttonCurrentState;
+//  delay(100);
+
+  if (keyPressed)
   {
-    Serial.print("button: ");
-    Serial.println(digitalRead(Controls[UP_BUTTON].pin));
-    addMinuteToTime();
-  }
+      keyPressed = false;
+      timeNewKeyPress = millis();
   
-  Controls[UP_BUTTON].lastState = Controls[UP_BUTTON].currentState;
-
-  delay(100);
+      if ( timeNewKeyPress - timeLastKeyPress >= timeDebounce)
+      {
+          Serial.print("button: ");
+          Serial.println(digitalRead(BUTTON_Pin));
+          addMinuteToTime();
+          blink();
+      }
+      timeLastKeyPress = timeNewKeyPress;
+  }
 }
 
-void initTimer1()
+void blink()
 {
-  //Reset Time1 Ctrl Reg A to default
-  TCCR1A = 0;
-
-  //Set prescalar to 256 for 1 second timer (b100)
-  TCCR1B |= (1 << CS12);
-  TCCR1B &= ~(1 << CS11);
-  TCCR1B &= ~(1 << CS10);
-
-  //ResetTimer1 and set compare value
-  TCNT1 = t1_load;
-  OCR1A = t1_comp;
-
-  //Set Timer1 compare interrupt enable
-  TIMSK1 = (1 << OCIE1A);
-
-  //Enable global inettupts
-  sei();
+      if (LEDstatus == LOW) { LEDstatus = HIGH; } else { LEDstatus = LOW; }   
+      digitalWrite(LED_Pin, LEDstatus);
 }
 
-ISR(TIMER1_COMPA_vect)
+//ISR for button press
+void keyIsPressed()
 {
-  checkForTimesUp();
-  TCNT1 = t1_load;
-  //PORTB ^= (1 << led_pin);
+   keyPressed = true;
 }
+
 
 int checkForTimesUp()
 {
@@ -132,7 +114,8 @@ int checkForTimesUp()
     if ((countdownSeconds % 60) == 0)
     {
       minuteCount--;
-      Num_Write(minuteCount);
+//      Num_Write(minuteCount);
+       myfnUpdateDisplay(myfnNumToBits(minuteCount));
     }
 
     Serial.print("   countdownSeconds: ");
@@ -146,17 +129,19 @@ int checkForTimesUp()
     countdownSeconds = 0;
     minuteCount = 0;
 
-        Serial.print("   countdownSeconds: ");
+    Serial.print("   countdownSeconds: ");
     Serial.println(countdownSeconds);
 
     Serial.print("   minuteCount: ");
     Serial.println(minuteCount);
 
-    Num_Write(minuteCount);
+//    Num_Write(minuteCount);
+     myfnUpdateDisplay(myfnNumToBits(minuteCount));
 
-    if (Controls[FAN].currentState != 0) {
-      Controls[FAN].currentState = 0;
-      pwmDuty(Controls[FAN].currentState); //Turn off fan
+    if (fanCurrentState != 0)
+    {
+      fanCurrentState = 0;
+      pwmDuty(fanCurrentState); //Turn off fan
     }
   }
 }
@@ -168,19 +153,16 @@ void addMinuteToTime()
   {
     countdownSeconds = countdownSeconds + 60; //convert to seconds
     minuteCount = countdownSeconds / 60;
-    Num_Write(minuteCount);
+//    Num_Write(minuteCount);
+    myfnUpdateDisplay(myfnNumToBits(minuteCount));
 
     Serial.print("countdownSeconds is now ");
     Serial.println(countdownSeconds);
     Serial.print("minuteCount is now ");
     Serial.println(minuteCount);
 
-
-    //    if (minuteCount == 1)
-    //    {
-    Controls[FAN].currentState = MAX_FAN_DC;
-    pwmDuty(Controls[FAN].currentState); //Turn on fan
-    //    }
+    fanCurrentState = MAX_FAN_DC;
+    pwmDuty(fanCurrentState); //Turn on fan
   }
   else
   {
@@ -210,12 +192,97 @@ void pwmDuty(byte ocrb)
   Serial.println(ocrb);
 }
 
-void Num_Write(int number)
+void initTimer1()
 {
-  int pin = 7;
-  for (int j = 0; j < 7; j++)
-  {
-    digitalWrite(pin, num_array[number][j]);
-    pin++;
+  //Reset Time1 Ctrl Reg A to default
+  TCCR1A = 0;
+
+  //Set prescalar to 256 for 1 second timer (b100)
+  TCCR1B |= (1 << CS12);
+  TCCR1B &= ~(1 << CS11);
+  TCCR1B &= ~(1 << CS10);
+
+  //ResetTimer1 and set compare value
+  TCNT1 = t1_load;
+  OCR1A = t1_comp;
+
+  //Set Timer1 compare interrupt enable
+  TIMSK1 = (1 << OCIE1A);
+
+  //Enable global inettupts
+  sei();
+}
+
+ISR(TIMER1_COMPA_vect)
+{
+  checkForTimesUp();
+  TCNT1 = t1_load;
+}
+
+void myfnUpdateDisplay(byte eightBits) {
+//  if (common == 'a') {                  // using a common anonde display?
+//    eightBits = eightBits ^ B11111111;  // then flip all bits using XOR 
+//  }
+  digitalWrite(latchPin, LOW);  // prepare shift register for data
+  shiftOut(dataPin, clockPin, LSBFIRST, eightBits); // send data
+  digitalWrite(latchPin, HIGH); // update display
+}
+
+byte myfnNumToBits(int someNumber) {
+  switch (someNumber) {
+    case -1: //Clear
+      return B00000000;
+      break;
+    case 0:
+      return B11111100;
+      break;
+    case 1:
+      return B01100000;
+      break;
+    case 2:
+      return B11011010;
+      break;
+    case 3:
+      return B11110010;
+      break;
+    case 4:
+      return B01100110;
+      break;
+    case 5:
+      return B10110110;
+      break;
+    case 6:
+      return B10111110;
+      break;
+    case 7:
+      return B11100000;
+      break;
+    case 8:
+      return B11111110;
+      break;
+    case 9:
+      return B11110110;
+      break;
+    case 10:
+      return B11101110; // Hexidecimal A
+      break;
+    case 11:
+      return B00111110; // Hexidecimal B
+      break;
+    case 12:
+      return B10011100; // Hexidecimal C
+      break;
+    case 13:
+      return B01111010; // Hexidecimal D
+      break;
+    case 14:
+      return B10011110; // Hexidecimal E
+      break;
+    case 15:
+      return B10001110; // Hexidecimal F
+      break;  
+    default:
+      return B10010010; // Error condition, displays three vertical bars
+      break;   
   }
 }
