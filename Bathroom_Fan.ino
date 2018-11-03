@@ -22,7 +22,7 @@ const int MAX_FAN_DC = 79;
 
 // const int led_pin = PB5; //Digital Pin 13 and on-board led
 const uint16_t t1_load = 0;
-const uint16_t t1_comp = 26500; //Compare value 256 -  (0.5s * 16MHz)/256
+const uint16_t t1_comp = 62244; //Compare value 256 -  (1s * 16MHz)/256
 
 int minuteCount = 0;
 int countdownSeconds = 0;
