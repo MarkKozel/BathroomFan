@@ -1,3 +1,34 @@
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define OLED_RESET 4
+Adafruit_SSD1306 display(OLED_RESET);
+
+//#define LOGO16_GLCD_HEIGHT 16 
+//#define LOGO16_GLCD_WIDTH  16 
+//static const unsigned char PROGMEM logo16_glcd_bmp[] =
+//{ B00000000, B11000000,
+//  B00000001, B11000000,
+//  B00000001, B11000000,
+//  B00000011, B11100000,
+//  B11110011, B11100000,
+//  B11111110, B11111000,
+//  B01111110, B11111111,
+//  B00110011, B10011111,
+//  B00011111, B11111100,
+//  B00001101, B01110000,
+//  B00011011, B10100000,
+//  B00111111, B11100000,
+//  B00111111, B11110000,
+//  B01111100, B11110000,
+//  B01110000, B01110000,
+//  B00000000, B00110000 };
+
+char displayString[5];
+boolean keepAliveOn = false;
+boolean updateDisplay = false;
 
 const int BUTTON_Pin = 2;
 volatile boolean keyPressed = false;
@@ -22,7 +53,7 @@ const int MAX_FAN_DC = 79;
 
 // const int led_pin = PB5; //Digital Pin 13 and on-board led
 const uint16_t t1_load = 0;
-const uint16_t t1_comp = 62244; //Compare value 256 -  (1s * 16MHz)/256
+const uint16_t t1_comp = 62245; //Compare value 256 -  (1s * 16MHz)/256
 
 int minuteCount = 0;
 int countdownSeconds = 0;
@@ -43,7 +74,14 @@ void setup()
 {
   Serial.begin(115200);
 
-  myfnUpdateDisplay(myfnNumToBits(-1));
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3C (for the 128x32)
+  display.clearDisplay();
+  display.drawPixel(10, 10, WHITE);
+  display.display();
+
+  UpdateOLEDDisplay(0);
+  
+  //myfnUpdateDisplay(myfnNumToBits(-1));
 
   //Setup fan and init PWM on
   pinMode(FAN_Pin, OUTPUT);
@@ -62,20 +100,6 @@ void setup()
 
 void loop()
 {
-//  buttonCurrentState = digitalRead(BUTTON_Pin);
-//  if (buttonCurrentState != buttonLastState)
-//  {
-//    if(buttonCurrentState = HIGH) {
-////      digitalWrite(BUTTON_Pin, LOW);
-//      Serial.print("button: ");
-//      Serial.println(digitalRead(BUTTON_Pin));
-//      addMinuteToTime();
-//    }
-//    
-//  }
-//  buttonLastState = buttonCurrentState;
-//  delay(100);
-
   if (keyPressed)
   {
       keyPressed = false;
@@ -90,6 +114,11 @@ void loop()
       }
       timeLastKeyPress = timeNewKeyPress;
   }
+
+  if(updateDisplay){
+    display.display();
+    updateDisplay = false;
+  }
 }
 
 void blink()
@@ -99,6 +128,7 @@ void blink()
 }
 
 //ISR for button press
+//Sets flag and leaves
 void keyIsPressed()
 {
    keyPressed = true;
@@ -106,7 +136,7 @@ void keyIsPressed()
 
 
 int checkForTimesUp()
-{
+{   
   if (countdownSeconds > 0)
   { //Still time. Count down and check for minute mark
     countdownSeconds--;
@@ -114,8 +144,8 @@ int checkForTimesUp()
     if ((countdownSeconds % 60) == 0)
     {
       minuteCount--;
-//      Num_Write(minuteCount);
-       myfnUpdateDisplay(myfnNumToBits(minuteCount));
+       //myfnUpdateDisplay(myfnNumToBits(minuteCount));
+       UpdateOLEDDisplay(minuteCount);
     }
 
     Serial.print("   countdownSeconds: ");
@@ -123,6 +153,8 @@ int checkForTimesUp()
 
     Serial.print("   minuteCount: ");
     Serial.println(minuteCount);
+
+//    toggleKeepAlive();
   }
   else
   { //Zero seconds. Clean up and turn off fan
@@ -135,8 +167,10 @@ int checkForTimesUp()
     Serial.print("   minuteCount: ");
     Serial.println(minuteCount);
 
-//    Num_Write(minuteCount);
-     myfnUpdateDisplay(myfnNumToBits(minuteCount));
+    //toggleKeepAlive();
+
+     //myfnUpdateDisplay(myfnNumToBits(minuteCount));
+     UpdateOLEDDisplay(minuteCount);
 
     if (fanCurrentState != 0)
     {
@@ -154,7 +188,8 @@ void addMinuteToTime()
     countdownSeconds = countdownSeconds + 60; //convert to seconds
     minuteCount = countdownSeconds / 60;
 //    Num_Write(minuteCount);
-    myfnUpdateDisplay(myfnNumToBits(minuteCount));
+    //myfnUpdateDisplay(myfnNumToBits(minuteCount));
+    UpdateOLEDDisplay(minuteCount);
 
     Serial.print("countdownSeconds is now ");
     Serial.println(countdownSeconds);
@@ -213,76 +248,104 @@ void initTimer1()
   sei();
 }
 
+//ISA for 1 second check/keep alive
 ISR(TIMER1_COMPA_vect)
 {
   checkForTimesUp();
+  toggleKeepAlive();
   TCNT1 = t1_load;
 }
 
-void myfnUpdateDisplay(byte eightBits) {
-//  if (common == 'a') {                  // using a common anonde display?
-//    eightBits = eightBits ^ B11111111;  // then flip all bits using XOR 
-//  }
-  digitalWrite(latchPin, LOW);  // prepare shift register for data
-  shiftOut(dataPin, clockPin, LSBFIRST, eightBits); // send data
-  digitalWrite(latchPin, HIGH); // update display
+void toggleKeepAlive() {
+  uint8_t Toggle_Color;
+  
+  if(keepAliveOn) {
+    Toggle_Color = BLACK;
+    keepAliveOn = false;
+  } else {
+    Toggle_Color = WHITE;
+    keepAliveOn = true;
+  }
+    display.fillRoundRect(123, 27, 5, 5, 1, Toggle_Color);
+    
+    updateDisplay = true;
 }
 
-byte myfnNumToBits(int someNumber) {
-  switch (someNumber) {
-    case -1: //Clear
-      return B00000000;
-      break;
-    case 0:
-      return B11111100;
-      break;
-    case 1:
-      return B01100000;
-      break;
-    case 2:
-      return B11011010;
-      break;
-    case 3:
-      return B11110010;
-      break;
-    case 4:
-      return B01100110;
-      break;
-    case 5:
-      return B10110110;
-      break;
-    case 6:
-      return B10111110;
-      break;
-    case 7:
-      return B11100000;
-      break;
-    case 8:
-      return B11111110;
-      break;
-    case 9:
-      return B11110110;
-      break;
-    case 10:
-      return B11101110; // Hexidecimal A
-      break;
-    case 11:
-      return B00111110; // Hexidecimal B
-      break;
-    case 12:
-      return B10011100; // Hexidecimal C
-      break;
-    case 13:
-      return B01111010; // Hexidecimal D
-      break;
-    case 14:
-      return B10011110; // Hexidecimal E
-      break;
-    case 15:
-      return B10001110; // Hexidecimal F
-      break;  
-    default:
-      return B10010010; // Error condition, displays three vertical bars
-      break;   
-  }
+void UpdateOLEDDisplay(int time) {
+  sprintf(displayString, "%d min", time);
+  Serial.print("displayString() => ");
+  Serial.println(displayString);
+
+  display.clearDisplay();
+  display.setTextSize(4);
+  display.setTextColor(WHITE);
+  display.setCursor(0,0);
+  display.println(displayString);
+
+  updateDisplay = true;
 }
+
+//void myfnUpdateDisplay(byte eightBits) {
+//  digitalWrite(latchPin, LOW);  // prepare shift register for data
+//  shiftOut(dataPin, clockPin, LSBFIRST, eightBits); // send data
+//  digitalWrite(latchPin, HIGH); // update display
+//}
+//
+//byte myfnNumToBits(int someNumber) {
+//  switch (someNumber) {
+//    case -1: //Clear
+//      return B00000000;
+//      break;
+//    case 0:
+//      return B11111100;
+//      break;
+//    case 1:
+//      return B01100000;
+//      break;
+//    case 2:
+//      return B11011010;
+//      break;
+//    case 3:
+//      return B11110010;
+//      break;
+//    case 4:
+//      return B01100110;
+//      break;
+//    case 5:
+//      return B10110110;
+//      break;
+//    case 6:
+//      return B10111110;
+//      break;
+//    case 7:
+//      return B11100000;
+//      break;
+//    case 8:
+//      return B11111110;
+//      break;
+//    case 9:
+//      return B11110110;
+//      break;
+//    case 10:
+//      return B11101110; // Hexidecimal A
+//      break;
+//    case 11:
+//      return B00111110; // Hexidecimal B
+//      break;
+//    case 12:
+//      return B10011100; // Hexidecimal C
+//      break;
+//    case 13:
+//      return B01111010; // Hexidecimal D
+//      break;
+//    case 14:
+//      return B10011110; // Hexidecimal E
+//      break;
+//    case 15:
+//      return B10001110; // Hexidecimal F
+//      break;  
+//    default:
+//      return B10010010; // Error condition, displays three vertical bars
+//      break;   
+//  }
+//}
