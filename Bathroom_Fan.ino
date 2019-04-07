@@ -3,14 +3,19 @@
 #include <SPI.h>
 #include <Wire.h>
 
+extern "C"{
+  #include "gas.h";
+};
+
 // Uncomment to see debugging info in Serial Console
 //#define DEBUG 1
 
 #define OLED_RESET 4
-Adafruit_SSD1306 display(OLED_RESET);
+Adafruit_SSD1306 OLED(OLED_RESET);
 
 // elements for OLED Display
-char displayString[5];
+char displayTime[15];
+char displayGas[15];
 boolean keepAliveOn = false;
 boolean updateDisplay = false;
 
@@ -23,8 +28,8 @@ unsigned int timeDebounce = 250;
 
 const int FAN_Pin = 3; // Fan control index
 int fanCurrentState = 0;
-const int FAN_UP = 0;
-const int FAN_DOWN = 1;
+//const int FAN_UP = 0;
+//const int FAN_DOWN = 1;
 const int MAX_FAN_DC = 79;
 
 // const int led_pin = PB5; //Digital Pin 13 and on-board led
@@ -35,15 +40,28 @@ int minuteCount = 0;
 int countdownSeconds = 0;
 const int MINUTE_COUNT_MAX = 30;
 
+// Gas Sensor
+int digitalSensor = 7;
+float analogSensor = A0;
+int gas_value_digital;
+int gas_value_analog;
+
+int gasReadingCount;
+int gasReadingValue;
+int gasAveragedValue;
+
+boolean addMinuteForGas = false;
+const int GAS_FAN_ON = 500;
+
 void setup()
 {
   Serial.begin(115200);
 
-  display.begin(SSD1306_SWITCHCAPVCC,
-                0x3C); // initialize with the I2C addr 0x3C (for the 128x32)
-  display.clearDisplay();
-  display.drawPixel(10, 10, WHITE);
-  display.display();
+  // initialize with the I2C addr 0x3C (for the 128x32)
+  OLED.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  OLED.clearDisplay();
+  OLED.drawPixel(10, 10, WHITE);
+  OLED.display();
 
   UpdateOLEDDisplay(0);
 
@@ -56,35 +74,73 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(BUTTON_Pin), keyIsPressed, FALLING);
 
   initTimer1();
+
+  pinMode(digitalSensor, INPUT);
+  pinMode(analogSensor, INPUT);
+
+  gasReadingCount = 0;
+  gasReadingValue = 0.0;
 }
 
 void loop()
 {
+  if (addMinuteForGas)
+  {
+    addMinuteToTime();
+    addMinuteForGas = false;
+  }
+
   if (keyPressed)
   {
     keyPressed = false;
     timeNewKeyPress = millis();
 
-    if (timeNewKeyPress - timeLastKeyPress >= timeDebounce)
+    if ((timeNewKeyPress - timeLastKeyPress >= timeDebounce) || addMinuteForGas)
     {
-#ifdef DEBUG
-      Serial.print("button: ");
-      Serial.println(digitalRead(BUTTON_Pin));
-#endif
       addMinuteToTime();
+      addMinuteForGas = false;
     }
     timeLastKeyPress = timeNewKeyPress;
   }
 
   if (updateDisplay)
   {
-    display.display();
+    OLED.display();
     updateDisplay = false;
   }
 }
 
+// Called by 1-second ISR to sample gas. If 10 points of data (gasReadingCount)
+// calculate current average as check to see if fan should turn on
+void newGasReading()
+{
+  gas_value_analog = analogRead(analogSensor);
+  gasAveragedValue = gasFilter(gas_value_analog);
+
+  if (!addMinuteForGas && (minuteCount == 0) && (gasAveragedValue >= GAS_FAN_ON))
+  {
+    addMinuteForGas = true;
+    Serial.println("Fan on for Gas");
+  }
+
+  sprintf(displayGas, "Gas: %d", gasAveragedValue);
+  Serial.println(displayGas);
+  OLED.setTextSize(2);
+
+  OLED.setCursor(0, 16);
+  // OLED.setTextColor(0xffff, 0);
+  // OLED.println(displayGas);
+  OLED.fillRect(0, 16, 128, 16, BLACK);
+  OLED.setTextColor(WHITE);
+  OLED.println(displayGas);
+  updateDisplay = true;
+}
+
 // ISR for button press. Sets flag and leaves
-void keyIsPressed() { keyPressed = true; }
+void keyIsPressed()
+{
+  keyPressed = true;
+}
 
 // Checks for end of timer to turn off fan.
 // Decrements second and minute (if needed) counters
@@ -101,26 +157,11 @@ int checkForTimesUp()
       minuteCount--;
       UpdateOLEDDisplay(minuteCount);
     }
-#ifdef DEBUG
-    Serial.print("   countdownSeconds: ");
-    Serial.println(countdownSeconds);
-
-    Serial.print("   minuteCount: ");
-    Serial.println(minuteCount);
-#endif
   }
   else
   { // Zero seconds. Clean up and turn off fan
     countdownSeconds = 0;
     minuteCount = 0;
-#ifdef DEBUG
-    Serial.print("   countdownSeconds: ");
-    Serial.println(countdownSeconds);
-
-    Serial.print("   minuteCount: ");
-    Serial.println(minuteCount);
-#endif
-
     UpdateOLEDDisplay(minuteCount);
 
     if (fanCurrentState != 0)
@@ -135,32 +176,14 @@ int checkForTimesUp()
 // MINUTE_COUNT_MAX
 void addMinuteToTime()
 {
-#ifdef DEBUG
-  Serial.println("addMinuteToTime");
-#endif
   if (minuteCount < MINUTE_COUNT_MAX)
   {
     countdownSeconds = countdownSeconds + 60; // convert to seconds
     minuteCount++;
-    UpdateOLEDDisplay(minuteCount);
-#ifdef DEBUG
-    Serial.print("countdownSeconds is now ");
-    Serial.println(countdownSeconds);
-    Serial.print("minuteCount is now ");
-    Serial.println(minuteCount);
-#endif
     fanCurrentState = MAX_FAN_DC;
     pwmDuty(fanCurrentState); // Turn on fan
+    UpdateOLEDDisplay(minuteCount);
   }
-#ifdef DEBUG
-  else
-  {
-    Serial.print("minuteCount already maxed out at ");
-    Serial.println(minuteCount);
-    Serial.print("Max Value is  ");
-    Serial.println(MINUTE_COUNT_MAX);
-  }
-#endif
 }
 
 // Setup TC2 for PWM Fan Control
@@ -182,10 +205,6 @@ void pwm25kHzBegin()
 void pwmDuty(byte ocrb)
 {
   OCR2B = ocrb; // PWM Width (duty)
-#ifdef DEBUG
-  Serial.print("Fan ordered to ");
-  Serial.println(ocrb);
-#endif
 }
 
 // Setup timer for 1-second interrupt
@@ -214,7 +233,9 @@ void initTimer1()
 ISR(TIMER1_COMPA_vect)
 {
   checkForTimesUp();
+  newGasReading();
   toggleKeepAlive();
+
   TCNT1 = t1_load;
 }
 
@@ -233,7 +254,7 @@ void toggleKeepAlive()
     Toggle_Color = WHITE;
     keepAliveOn = true;
   }
-  display.fillRoundRect(123, 27, 5, 5, 1, Toggle_Color);
+  OLED.fillRoundRect(123, 5, 5, 5, 1, Toggle_Color);
 
   updateDisplay = true;
 }
@@ -241,16 +262,14 @@ void toggleKeepAlive()
 // Update timer on diplay. Wait for 1-second interrupt to update display
 void UpdateOLEDDisplay(int time)
 {
-  sprintf(displayString, "%d min", time);
-#ifdef DEBUG
-  Serial.print("displayString() => ");
-  Serial.println(displayString);
-#endif
-  display.clearDisplay();
-  display.setTextSize(4);
-  display.setTextColor(WHITE);
-  display.setCursor(0, 0);
-  display.println(displayString);
+  sprintf(displayTime, "Time: %d", time);
 
-  updateDisplay = true;
+  OLED.clearDisplay();
+  OLED.setTextSize(2);
+  OLED.setTextColor(WHITE);
+
+  OLED.setCursor(0, 0);
+  OLED.println(displayTime);
+
+    updateDisplay = true;
 }
