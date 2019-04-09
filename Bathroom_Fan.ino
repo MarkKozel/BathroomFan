@@ -3,12 +3,13 @@
 #include <SPI.h>
 #include <Wire.h>
 
-extern "C"{
-  #include "gas.h";
+extern "C"
+{
+#include "gas.h";
 };
 
-// Uncomment to see debugging info in Serial Console
-//#define DEBUG 1
+  // Uncomment to see debugging info in Serial Console
+  //#define DEBUG 1
 
 #define OLED_RESET 4
 Adafruit_SSD1306 OLED(OLED_RESET);
@@ -51,7 +52,9 @@ int gasReadingValue;
 int gasAveragedValue;
 
 boolean addMinuteForGas = false;
-const int GAS_FAN_ON = 500;
+boolean fanOnForGas = false;
+const int GAS_FAN_ON = 140;
+const int GAS_FAN_OFF = 110;
 
 void setup()
 {
@@ -88,6 +91,7 @@ void loop()
   {
     addMinuteToTime();
     addMinuteForGas = false;
+    fanOnForGas = true;
   }
 
   if (keyPressed)
@@ -117,10 +121,23 @@ void newGasReading()
   gas_value_analog = analogRead(analogSensor);
   gasAveragedValue = gasFilter(gas_value_analog);
 
-  if (!addMinuteForGas && (minuteCount == 0) && (gasAveragedValue >= GAS_FAN_ON))
+  if (fanOnForGas)
   {
-    addMinuteForGas = true;
-    Serial.println("Fan on for Gas");
+    if (gasAveragedValue <= GAS_FAN_OFF)
+    {
+      addMinuteForGas = false;
+      fanOnForGas = false;
+      Serial.println("Fan off for Gas");
+    }
+  }
+  else //!fanOnForGas
+  {
+    if (minuteCount == 0 && gasAveragedValue >= GAS_FAN_ON)
+    {
+      addMinuteForGas = true;
+      fanOnForGas = true;
+      Serial.println("Fan on for Gas");
+    }
   }
 
   sprintf(displayGas, "Gas: %d", gasAveragedValue);
@@ -128,8 +145,6 @@ void newGasReading()
   OLED.setTextSize(2);
 
   OLED.setCursor(0, 16);
-  // OLED.setTextColor(0xffff, 0);
-  // OLED.println(displayGas);
   OLED.fillRect(0, 16, 128, 16, BLACK);
   OLED.setTextColor(WHITE);
   OLED.println(displayGas);
@@ -271,5 +286,5 @@ void UpdateOLEDDisplay(int time)
   OLED.setCursor(0, 0);
   OLED.println(displayTime);
 
-    updateDisplay = true;
+  updateDisplay = true;
 }

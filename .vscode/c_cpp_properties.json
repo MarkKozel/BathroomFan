@@ -13,6 +13,16 @@
             "compilerPath": "/usr/bin/gcc",
             "cStandard": "c11",
             "cppStandard": "c++17"
+        },
+        {
+            "name": "Linux",
+            "includePath": [
+                "/home/mark/Development/IDEs/arduino-1.8.9/tools/**",
+                "/home/mark/Development/IDEs/arduino-1.8.9/hardware/arduino/avr/**"
+            ],
+            "forcedInclude": [
+                "/home/mark/Development/IDEs/arduino-1.8.9/hardware/arduino/avr/cores/arduino/Arduino.h"
+            ]
         }
     ],
     "version": 4
